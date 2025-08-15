@@ -5,45 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PDF → Excel (Waybill)</title>
   <style>
-    body{font-family:system-ui,Arial,sans-serif;max-width:680px;margin:40px auto;padding:0 16px}
-    .card{border:1px solid #eee;border-radius:12px;padding:20px}
-    button{padding:10px 16px;border:0;border-radius:8px;cursor:pointer}
-    #result{margin-top:16px}
+    body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:0 16px}
+    .card{border:1px solid #ccc;border-radius:8px;padding:20px}
+    button{padding:10px 16px;border:0;border-radius:8px;cursor:pointer;background:#4CAF50;color:#fff}
+    #status{margin-top:10px}
   </style>
 </head>
 <body>
-  <h1>Загрузить счёт (PDF) → получить Excel</h1>
+  <h1>Загрузить счёт (PDF) → Excel</h1>
   <div class="card">
     <input id="file" type="file" accept="application/pdf" />
     <button id="btn">Обработать</button>
     <div id="status"></div>
-    <div id="result"></div>
   </div>
 <script>
-const btn = document.getElementById('btn');
-const fileInput = document.getElementById('file');
-const statusEl = document.getElementById('status');
-const resultEl = document.getElementById('result');
-
-btn.onclick = async () => {
+document.getElementById('btn').onclick = async () => {
+  const fileInput = document.getElementById('file');
+  const statusEl = document.getElementById('status');
   const f = fileInput.files[0];
   if(!f){ alert('Выберите PDF'); return; }
-  statusEl.textContent = 'Загружаю и обрабатываю...';
-  resultEl.textContent = '';
-  const form = new FormData();
-  form.append('file', f);
-  const res = await fetch('/api/upload', { method:'POST', body: form });
+  statusEl.textContent = 'Загружаю...';
+  const formData = new FormData();
+  formData.append('file', f);
+  const res = await fetch('/api/upload', { method: 'POST', body: formData });
   if(!res.ok){
     statusEl.textContent = 'Ошибка загрузки';
     return;
   }
-  const data = await res.json();
-  if(data.error){
-    statusEl.textContent = 'Ошибка: ' + data.error;
-    return;
-  }
-  statusEl.textContent = 'Готово!';
-  resultEl.innerHTML = '<a href="' + data.download_url + '">Скачать Excel</a>';
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'waybill.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  statusEl.textContent = 'Готово! Файл скачан.';
 };
 </script>
 </body>

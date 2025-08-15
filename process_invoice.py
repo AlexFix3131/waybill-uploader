@@ -1,37 +1,50 @@
-#!/usr/bin/env python3
-# process_invoice.py
-# Usage: python process_invoice.py input.pdf output.xlsx
-# Extracts rows to columns: MPN, Replacem, Quantity, Totalsprice, Order reference
-# Rules: per AVAR (Totalsprice from Summa; ignore Cena; copy #order per block)
-import sys, re, os
+import sys, re
 import pandas as pd
+import pdfplumber
 
-# This script expects a CSV extracted from the PDF beforehand.
-# For a quick demo, if input is CSV, we read it; if PDF, exit with message.
-inp = sys.argv[1]
-outp = sys.argv[2]
+if len(sys.argv) != 3:
+    print("Usage: process_invoice.py input.pdf output.xlsx", file=sys.stderr)
+    sys.exit(1)
 
-if inp.lower().endswith('.csv'):
-    df = pd.read_csv(inp, sep=None, engine='python')
-else:
-    print('ERROR: This template expects a CSV extracted from PDF. Use OCR/CSV step in your pipeline.', file=sys.stderr)
-    sys.exit(2)
+input_pdf = sys.argv[1]
+output_xlsx = sys.argv[2]
 
-def norm(s): return re.sub(r'\s+',' ',str(s).strip().lower())
+# Extract tables from PDF (AVAR format)
+rows = []
+with pdfplumber.open(input_pdf) as pdf:
+    for page in pdf.pages:
+        tables = page.extract_tables()
+        for table in tables:
+            for row in table:
+                if any(row):
+                    rows.append(row)
 
-inv = {norm(c):c for c in df.columns}
-def pick(*alts):
-    for a in alts:
-        a = norm(a)
-        if a in inv: return inv[a]
-        for k,v in inv.items():
-            if a in k or k in a: return v
+df_raw = pd.DataFrame(rows)
+
+# Try to detect columns by header names
+header_row_index = None
+for i, row in df_raw.iterrows():
+    if any(isinstance(x, str) and 'Summa' in x for x in row):
+        header_row_index = i
+        break
+
+if header_row_index is None:
+    header_row_index = 0
+
+df = pd.DataFrame(rows[header_row_index+1:], columns=rows[header_row_index])
+
+# Normalize column picking
+def pick_col(df, *names):
+    for name in names:
+        for col in df.columns:
+            if col and name.lower() in str(col).lower():
+                return col
     return None
 
-col_mpn = pick('mpn','artikuls','item code','code')
-col_qty = pick('quantity','daudz.','qty','daudz')
-col_sum = pick('summa','totalsprice','line total','amount')
-col_order = pick('order reference','order nr','order')
+col_mpn = pick_col(df, 'Artikuls', 'MPN', 'Code')
+col_qty = pick_col(df, 'Daudz', 'Quantity', 'Qty')
+col_sum = pick_col(df, 'Summa', 'Totalsprice', 'Amount')
+col_order = pick_col(df, 'Order', 'Order reference')
 
 out = pd.DataFrame()
 out['MPN'] = df[col_mpn].astype(str) if col_mpn else ''
@@ -42,16 +55,15 @@ out['Totalsprice'] = df[col_sum] if col_sum else ''
 if col_order:
     out['Order reference'] = df[col_order].astype(str).str.extract(r'(\d+)', expand=False).fillna('')
 else:
-    # fallback from markers in any column
     current = ''
     orders = []
     pat = re.compile(r'#\s*(\d+)\b')
     for _, row in df.iterrows():
         text = ' '.join(str(v) for v in row.values)
         m = pat.search(text)
-        if m: current = m.group(1)
+        if m:
+            current = m.group(1)
         orders.append(current)
     out['Order reference'] = orders
 
-out.to_excel(outp, index=False)
-print(outp)
+out.to_excel(output_xlsx, index=False)

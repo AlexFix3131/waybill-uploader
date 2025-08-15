@@ -1,33 +1,49 @@
+const formidable = require('formidable');
 const { execFile } = require('child_process');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
+
+module.exports.config = { api: { bodyParser: false } };
 
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
-  try {
-    // Read multipart form
-    const chunks = [];
-    req.on('data', d => chunks.push(d));
-    await new Promise(r => req.on('end', r));
-    const contentType = req.headers['content-type'] || '';
-    if (!contentType.startsWith('multipart/form-data')) {
-      return res.status(400).json({ error: 'Expect multipart/form-data' });
-    }
-    // Parse multipart manually (simple; Vercel parses automatically in real env or use formidable)
-    // Here, to keep template simple, we write raw body to temp and let python script read it using werkzeug/formidable? 
-    // Instead, simpler: rely on Vercel default body parsing OFF and use 'formidable'.
-    return res.status(400).json({ error: 'Please install formidable in real deployment.' });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+  // Basic Auth
+  const auth = { login: "SasaBoss", password: "GIGACHAT@1231!" };
+  const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+  const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+  if (login !== auth.login || password !== auth.password) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Waybill"');
+    res.status(401).send('Authentication required.');
+    return;
   }
-};
-module.exports = async (req, res) => {
+
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'POST only' });
+    res.status(405).json({ error: 'POST only' });
+    return;
   }
 
-  // Заглушка: пока что просто отдаём JSON-ответ
-  res.status(200).json({
-    message: 'Файл получен! Здесь будет обработка PDF → Excel.'
+  const form = formidable({ multiples: false, keepExtensions: true });
+  form.parse(req, (err, fields, files) => {
+    if (err) {
+      res.status(500).json({ error: String(err) });
+      return;
+    }
+    const file = files.file;
+    if (!file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+
+    const inputPath = file.filepath;
+    const outputPath = path.join('/tmp', 'waybill.xlsx');
+
+    execFile('python3', ['process_invoice.py', inputPath, outputPath], { cwd: process.cwd() }, (error, stdout, stderr) => {
+      if (error) {
+        res.status(500).json({ error: stderr || error.message });
+        return;
+      }
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="waybill.xlsx"');
+      fs.createReadStream(outputPath).pipe(res);
+    });
   });
 };
