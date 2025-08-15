@@ -21,3 +21,13 @@ module.exports = async (req, res) => {
     return res.status(500).json({ error: e.message });
   }
 };
+module.exports = async (req, res) => {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'POST only' });
+  }
+
+  // Заглушка: пока что просто отдаём JSON-ответ
+  res.status(200).json({
+    message: 'Файл получен! Здесь будет обработка PDF → Excel.'
+  });
+};
